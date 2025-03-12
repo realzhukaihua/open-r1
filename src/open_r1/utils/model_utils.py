@@ -18,7 +18,7 @@ def get_tokenizer(
         trust_remote_code=model_args.trust_remote_code,
     )
 
-    if training_args.chat_template is not None:
+    if training_args is not None and training_args.chat_template is not None:
         tokenizer.chat_template = training_args.chat_template
     elif auto_set_chat_template and tokenizer.get_chat_template() is None:
         tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
