@@ -64,12 +64,12 @@ def main(script_args, training_args, model_args):
     # Set seed for reproducibility
     set_seed(training_args.seed)
     # Define vLLM server endpoint
-    VLLM_SERVER_URL = "http://localhost:8019/v1/completions"  # Change if different
+    VLLM_SERVER_URL = "http://localhost:8018/v1/completions"  # Change if different
 
     # Load tokenizer
     # model_name = "data/Qwen2.5-1.5B-Open-R1-Distill"  # Example model
     model_name = "Qwen/Qwen2.5-Math-7B"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained('data/Qwen2.5-7B-v2')
 
     # Load dataset
     dataset = load_dataset("DigitalLearningGmbH/MATH-lighteval", name=script_args.dataset_config)

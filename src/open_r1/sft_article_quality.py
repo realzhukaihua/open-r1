@@ -65,7 +65,53 @@ from trl import (
 
 logger = logging.getLogger(__name__)
 
+def make_conversation_for_sft_trainer(example, tokenizer):
+    # Build the prompt
+    # Truncate the article content to the top 7000 tokens
+    content_tokens = tokenizer.tokenize(example['seg_content'])
+    truncated_content = tokenizer.convert_tokens_to_string(content_tokens[:7000])
 
+    prompt = (
+        f"This is article title:{example['seg_title']}\n"
+        f"This is article content:{truncated_content}\n"
+        f"This is article domain:{example['domain']}\n"
+        f"This is article category:{example['category']}\n"
+        f"You should help to judge this article quality with reason and final label. "
+        "Please output with json format like {\"reason\":***,\"moderation\":***,\"label\":***}"
+    )
+    # Create the label as a JSON string
+    reason = ''
+    moderation = ''
+    for item in ['ok','detrimental','poor']:
+        if example["reason"].get(item) is not None:
+            reason = example["reason"].get(item)[0]
+            moderation = item
+    # print(example)
+    label = json.dumps({"reason": reason, 'moderation':moderation, "label": example["status"]})
+
+    # Construct the conversation structure
+    input_chat = [
+        {"role": "system", "content": "You are a helpful AI Assistant and good at content moderation."},
+        {"role": "user", "content": prompt}
+    ]
+    output_chat = [{"role": "assistant", "content": label}]
+    # Convert conversation to text using the chat template
+    input_text = tokenizer.apply_chat_template(input_chat+output_chat, tokenize=False)
+    # 生成 labels（mask 掉 input 部分）
+    input_only_text = tokenizer.apply_chat_template(input_chat, tokenize=False)
+    len_input = len(tokenizer(input_only_text, padding=False, truncation=True, max_length=tokenizer.model_max_length).input_ids)
+
+    full_tokenized = tokenizer(input_text, padding=False, truncation=True, max_length=tokenizer.model_max_length, return_tensors="pt")
+    labels = full_tokenized.input_ids.clone()
+    labels[0, :len_input] = -100  # Mask in
+    return {
+            "input_ids": full_tokenized.input_ids[0],
+            "attention_mask": full_tokenized.attention_mask[0],
+            "labels": labels[0],
+            "input_text": input_text,
+            'input_only_text':input_only_text
+        }
+        
 def main(script_args, training_args, model_args):
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -104,69 +150,17 @@ def main(script_args, training_args, model_args):
     ################
     # dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
     dataset = load_dataset("json", data_files={"train": "data/train.s02.all.jsonl", "test": "data/dev.all.jsonl"})
-    # dataset['train'] = dataset['train'].select(range(1000))
-    # dataset['test'] = dataset['test'].select(range(1000))
+    dataset['train'] = dataset['train'].select(range(5000))
+    dataset['test'] = dataset['test'].select(range(1000))
     ################
     # Load tokenizer
     ################
     tokenizer = get_tokenizer(model_args, training_args)
     tokenizer.model_max_length = training_args.max_length
     tokenizer.pad_token = tokenizer.eos_token
-    
 
-    def make_conversation_for_sft_trainer(example):
-        # Build the prompt
-        # Truncate the article content to the top 7000 tokens
-        content_tokens = tokenizer.tokenize(example['seg_content'])
-        truncated_content = tokenizer.convert_tokens_to_string(content_tokens[:4000])
-
-        prompt = (
-            f"This is article title:{example['seg_title']}\n"
-            f"This is article content:{truncated_content}\n"
-            f"This is article domain:{example['domain']}\n"
-            f"This is article category:{example['category']}\n"
-            f"You should help to judge this article quality with reason and final label. "
-            "Please output with json format like {\"reason\":***,\"label\":***}\n"
-        )
-
-        # Create the label as a JSON string
-        label = json.dumps({"reason": example["reason"], "label": example["status"]})
-
-        # Construct the conversation structure
-        input_chat = [
-            {"role": "system", "content": "You are a helpful AI Assistant and good at content moderation."},
-            {"role": "user", "content": prompt}
-        ]
-        output_chat = [{"role": "assistant", "content": label}]
-
-
-        # Convert conversation to text using the chat template
-        full_text = tokenizer.apply_chat_template(input_chat+output_chat, tokenize=False)
-        input_text = tokenizer.apply_chat_template(input_chat, tokenize=False)
-        # Tokenize the entire conversation
-        tokenized = tokenizer(
-            full_text, padding=False, truncation=True, max_length=tokenizer.model_max_length, return_tensors="pt"
-        )
-        input_tokenized = tokenizer(
-            input_text, padding=False, truncation=True, max_length=tokenizer.model_max_length
-        )
-
-        # Tokenize only the label (assistant's response)
-
-        # Convert to list for easier handling
-        len_input = len(input_tokenized["input_ids"])        # Find the exact token start index of the assistant's response
-        # Mask tokens before the assistant's response
-        labels = tokenized.input_ids.clone()
-        labels[0, :len_input] = -100
-
-        return {
-            "input_ids": tokenized.input_ids[0],
-            "attention_mask": tokenized.attention_mask[0],
-            "labels": labels[0]
-        }
-
-
-    dataset = dataset.map(make_conversation_for_sft_trainer,batched=False)
+    dataset['test'] = dataset['test'].map(lambda example: make_conversation_for_sft_trainer(example, tokenizer=tokenizer))
+    dataset['train'] = dataset['train'].map(lambda example: make_conversation_for_sft_trainer(example, tokenizer=tokenizer))
 
     ###################
     # Model init kwargs
