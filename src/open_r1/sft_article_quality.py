@@ -61,6 +61,7 @@ from trl import (
     get_peft_config,
     get_quantization_config,
 )
+from transformers import DataCollatorForSeq2Seq
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,6 @@ def make_conversation_for_sft_trainer(example, tokenizer):
         if example["reason"].get(item) is not None:
             reason = example["reason"].get(item)[0]
             moderation = item
-    # print(example)
     label = json.dumps({"reason": reason, 'moderation':moderation, "label": example["status"]})
 
     # Construct the conversation structure
@@ -101,16 +101,20 @@ def make_conversation_for_sft_trainer(example, tokenizer):
     input_only_text = tokenizer.apply_chat_template(input_chat, tokenize=False)
     len_input = len(tokenizer(input_only_text, padding=False, truncation=True, max_length=tokenizer.model_max_length).input_ids)
 
-    full_tokenized = tokenizer(input_text, padding=False, truncation=True, max_length=tokenizer.model_max_length, return_tensors="pt")
-    labels = full_tokenized.input_ids.clone()
-    labels[0, :len_input] = -100  # Mask in
-    return {
-            "input_ids": full_tokenized.input_ids[0],
-            "attention_mask": full_tokenized.attention_mask[0],
-            "labels": labels[0],
+    full_tokenized = tokenizer(input_text, truncation=True, max_length=tokenizer.model_max_length, return_tensors="pt")
+    input_ids = full_tokenized.input_ids.squeeze(0)  # Convert from tensor shape (1, seq_len) → (seq_len,)
+    attention_mask = full_tokenized.attention_mask.squeeze(0)
+    labels = input_ids.clone()
+    labels[:len_input] = -100  # Mask in
+    result = {
+            "input_ids": input_ids.tolist(),
+            "attention_mask": attention_mask.tolist(),
+            "labels": labels.tolist(),
             "input_text": input_text,
-            'input_only_text':input_only_text
+            'input_only_text':input_only_text,
+            'len_input':len_input
         }
+    return result
         
 def main(script_args, training_args, model_args):
     # Set seed for reproducibility
@@ -150,8 +154,8 @@ def main(script_args, training_args, model_args):
     ################
     # dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
     dataset = load_dataset("json", data_files={"train": "data/train.s02.all.jsonl", "test": "data/dev.all.jsonl"})
-    dataset['train'] = dataset['train'].select(range(5000))
-    dataset['test'] = dataset['test'].select(range(1000))
+    # dataset['train'] = dataset['train'].select(range(5000))
+    # dataset['test'] = dataset['test'].select(range(2))
     ################
     # Load tokenizer
     ################
@@ -193,6 +197,7 @@ def main(script_args, training_args, model_args):
     ############################
     # Initialize the SFT Trainer
     ############################
+
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -200,7 +205,13 @@ def main(script_args, training_args, model_args):
         eval_dataset=dataset[script_args.dataset_test_split] if training_args.eval_strategy != "no" else None,
         processing_class=tokenizer,
         peft_config=get_peft_config(model_args),
-        callbacks=get_callbacks(training_args, model_args)
+        callbacks=get_callbacks(training_args, model_args),
+        data_collator=DataCollatorForSeq2Seq(
+            tokenizer,
+            padding=True,
+            max_length=tokenizer.model_max_length,
+            pad_to_multiple_of=8,
+        ),  # 让 DataCollator 负责 padding
     )
 
     ###############
@@ -212,8 +223,8 @@ def main(script_args, training_args, model_args):
         checkpoint = training_args.resume_from_checkpoint
     elif last_checkpoint is not None:
         checkpoint = last_checkpoint
-    # train_result = trainer.train(resume_from_checkpoint=checkpoint)
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=checkpoint)
+    # train_result = trainer.train()
     metrics = train_result.metrics
     metrics["train_samples"] = len(dataset[script_args.dataset_train_split])
     trainer.log_metrics("train", metrics)

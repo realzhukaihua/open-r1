@@ -1,4 +1,5 @@
 # Model arguments
+# model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
 model_name_or_path: Qwen/Qwen2.5-7B-Instruct
 model_revision: main
 torch_dtype: bfloat16
@@ -10,9 +11,9 @@ dataset_num_proc: 48
 
 # SFT trainer config
 bf16: true
-do_eval: false
+do_eval: true
 eval_strategy: 'steps'
-eval_steps: 100
+eval_steps: 200
 gradient_accumulation_steps: 4
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
@@ -30,7 +31,8 @@ packing: false
 max_length: 8096
 max_steps: -1
 num_train_epochs: 1
-output_dir: data/Qwen2.5-7B
+# output_dir: data/Qwen2.5-7B
+output_dir: data/Qwen2.5-7B-Instruct
 overwrite_output_dir: true
 per_device_eval_batch_size: 1
 per_device_train_batch_size: 2
@@ -40,5 +42,5 @@ report_to:
 save_strategy: "epoch"
 save_total_limit: 1
 seed: 42
-use_liger: true
+use_liger: false
 warmup_ratio: 0.05

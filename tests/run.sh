@@ -77,7 +77,7 @@ curl http://localhost:8019/v1/completions \
 sudo docker run  --rm --gpus '"device=6,7"'  -p 8002:8000 -v /mnt/share/kaihua/20250105:/models vllm/vllm-openai --model /models --served-model-name claims_extraction --tensor-parallel-size 2
 
 
-CUDA_VISIBLE_DEVICES=4 vllm serve /home/kaihua/open-r1/data/Qwen2.5-1.5B-Open-R1-Distill --port 8018 --served-model-name gpttest
+CUDA_VISIBLE_DEVICES=7 vllm serve data/Qwen2.5-7B-v2 --port 8018 --served-model-name gpttest
 
 CUDA_VISIBLE_DEVICES=5 vllm serve Qwen/Qwen2.5-Math-7B --port 8019 --served-model-name gpttest
 
@@ -85,5 +85,6 @@ python /home/kaihua/open-r1/tests/vllm_inference.py     --config recipes/DeepSee
 
 
 CUDA_VISIBLE_DEVICES=4,5 ACCELERATE_LOG_LEVEL=info accelerate launch --config_file recipes/accelerate_configs/zero3.yaml  src/open_r1/sft_article_quality.py --config recipes/article_quality/sft/config.yaml
+ACCELERATE_LOG_LEVEL=info accelerate launch --config_file recipes/accelerate_configs/zero3.yaml  src/open_r1/sft_article_quality.py --config recipes/article_quality/sft/config.yaml
 
 CUDA_VISIBLE_DEVICES=4,5   ACCELERATE_LOG_LEVEL=info accelerate launch --config_file recipes/accelerate_configs/zero3.yaml     src/open_r1/sft.py     --config recipes/Qwen2.5-1.5B-Instruct/sft/config_demo.yaml
